@@ -1,0 +1,32 @@
+name: Swing scan
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"   # 21:30 UTC weekdays = after the US close
+  workflow_dispatch:           # "Run workflow" button for testing
+
+permissions:
+  contents: write              # lets the bot save picks.json back to the repo
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run scanner
+        run: python swing_bot.py
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ACCOUNT_SIZE: ${{ vars.ACCOUNT_SIZE || '5000' }}
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+      - name: Save track record
+        run: |
+          git config user.name "swing-bot"
+          git config user.email "swing-bot@users.noreply.github.com"
+          git add picks.json 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "Update picks" && git push)
