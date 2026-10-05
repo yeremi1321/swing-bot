@@ -1,0 +1,52 @@
+name: Kalshi scan
+
+on:
+  schedule:
+    # 3 runs a day (UTC). Each run spends 1 Odds API credit per in-season sport,
+    # so this fits the free 500 credits/month with ~5 sports in season.
+    - cron: "0 15,21 * * *"    # 11am & 5pm ET
+    - cron: "30 23 * * *"      # 7:30pm ET, before night games
+  workflow_dispatch:           # "Run workflow" button for testing
+
+permissions:
+  contents: write              # lets the bot save bets.json back to the repo
+
+concurrency:
+  group: kalshi-scan           # never run two scans at once (avoids double bets)
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt pytest
+      - name: Tests
+        run: python -m pytest -q
+      - name: Run bot
+        run: python kalshi_bot.py
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          KALSHI_API_KEY_ID: ${{ secrets.KALSHI_API_KEY_ID }}
+          KALSHI_PRIVATE_KEY: ${{ secrets.KALSHI_PRIVATE_KEY }}
+          KALSHI_ENV: ${{ vars.KALSHI_ENV || 'demo' }}
+          TRADING_ENABLED: ${{ vars.TRADING_ENABLED || '' }}
+          CONFIRM_REAL_MONEY: ${{ vars.CONFIRM_REAL_MONEY || '' }}
+          MAX_BET_USD: ${{ vars.MAX_BET_USD || '10' }}
+          MAX_DAILY_USD: ${{ vars.MAX_DAILY_USD || '50' }}
+          MAX_OPEN_USD: ${{ vars.MAX_OPEN_USD || '100' }}
+          MIN_EDGE: ${{ vars.MIN_EDGE || '0.03' }}
+          SPORTS: ${{ vars.SPORTS || 'nfl,ncaaf,nba,wnba,mlb,nhl' }}
+          ALWAYS_POST: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+      - name: Save ledger
+        if: always()
+        run: |
+          git config user.name "kalshi-bot"
+          git config user.email "kalshi-bot@users.noreply.github.com"
+          git add bets.json
+          git diff --cached --quiet || (git commit -m "Update bets" && git push)
